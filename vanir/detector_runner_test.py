@@ -260,6 +260,7 @@ class DetectorRunnerTest(absltest.TestCase):
         instance=True,
         analyzed_files=_TEST_ANALYZED_FILES,
         skipped_files=_TEST_SKIPPED_FILES,
+        scan_metadata=None,
         errors=[IOError('error message')],
     )
     self._mock_scan = self.enter_context(
