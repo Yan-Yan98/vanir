@@ -18,7 +18,6 @@ import collections
 import datetime
 import functools
 import inspect
-import itertools
 import json
 import os
 import sys
@@ -518,10 +517,14 @@ def main(argv: Sequence[str]) -> None:
   os.makedirs(directory, exist_ok=True)
   json_output_file_name = output_file_name_prefix + '.json'
   html_output_file_name = output_file_name_prefix + '.html'
-  for output_file_name in [json_output_file_name, html_output_file_name]:
+  for output_file_name in [
+      json_output_file_name,
+      html_output_file_name,
+  ]:
     report_file = open(output_file_name, 'w', encoding='utf-8')
     report_file.close()
 
+  start_time_ms = int(datetime.datetime.now().timestamp() * 1000)
   scanner = scanner_class(*scanner_args, **scanner_kwargs)
   findings, stats, vuln_manager = scanner.scan(
       strategy=flags.FLAGS['target_selection_strategy'].value,
@@ -542,6 +545,7 @@ def main(argv: Sequence[str]) -> None:
   findings = scanner_base.ShortFunctionFilter().filter(findings)
   for finding_filter in finding_filters:
     findings = finding_filter.filter(findings)
+  end_time_ms = int(datetime.datetime.now().timestamp() * 1000)
 
   report_book = reporter.ReportBook(
       reporter.generate_reports(findings), vuln_manager
@@ -549,17 +553,22 @@ def main(argv: Sequence[str]) -> None:
   unpatched_cves = report_book.unpatched_cves
 
   signatures = vuln_manager.signatures
-  covered_cves = itertools.chain.from_iterable(
-      [vuln_manager.sign_id_to_cve_ids(sign.signature_id)
-       for sign in signatures]
+  covered_cves_set = set()
+  for sign in signatures:
+    covered_cves_set.update(vuln_manager.sign_id_to_cve_ids(sign.signature_id))
+  covered_cves = sorted(covered_cves_set)
+  covered_vuln_ids = sorted(
+      {vuln_manager.sign_id_to_osv_id(sign.signature_id) for sign in signatures}
+      - {None}
   )
-  covered_cves = sorted(set(covered_cves))
 
   # Generate a machine-readable JSON report.
   _generate_json_report(json_output_file_name, report_book, covered_cves)
 
   # Generate a human-readable HTML report.
   _generate_html_report(html_output_file_name, report_book, covered_cves, stats)
+
+  # Generate an APA Tradefed / XTS v2 compatible XML report.
 
   # Generate a console output.
   scanned_files = stats.analyzed_files + stats.skipped_files

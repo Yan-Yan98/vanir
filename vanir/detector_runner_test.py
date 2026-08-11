@@ -20,6 +20,7 @@ import os
 import re
 from typing import Optional, Sequence, Tuple
 from unittest import mock
+import xml.etree.ElementTree as ET
 
 from absl import app
 from absl.testing import flagsaver
@@ -260,8 +261,8 @@ class DetectorRunnerTest(absltest.TestCase):
         instance=True,
         analyzed_files=_TEST_ANALYZED_FILES,
         skipped_files=_TEST_SKIPPED_FILES,
-        scan_metadata=None,
         errors=[IOError('error message')],
+        scan_metadata={},
     )
     self._mock_scan = self.enter_context(
         mock.patch.object(
