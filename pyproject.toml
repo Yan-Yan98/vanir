@@ -14,7 +14,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "vanir"
-version = "1.2.0"
+dynamic = ["version"]
 authors = [
     { name = "Hyunwook (Wooky) Baek", email = "baekhw@google.com" },
     { name = "Duy Truong", email = "duytruong@google.com" },
@@ -87,6 +87,10 @@ cmake.build-type = "Release"
 cmake.source-dir = "vanir"
 logging.level = "INFO"
 sdist.exclude = ["dist/**", "**/*.bazel", "**/*.bzl"]
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "vanir/version.py"
 
 [tool.cibuildwheel]
 test-command = "python -m vanir.pip_modules.pip_test_runner"
