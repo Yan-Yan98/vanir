@@ -13,13 +13,53 @@ on:
     branches: [ main ]
 
 jobs:
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      run_checks: ${{ steps.filter.outputs.run_checks }}
+      is_pr: ${{ steps.filter.outputs.is_pr }}
+      files: ${{ steps.filter.outputs.files }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect Changes
+        id: filter
+        run: |
+          run_checks="true"
+          is_pr="true"
+
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            is_pr="false"
+          else
+            CHANGED_PY_FILES=$(git diff --name-only --diff-filter=d \
+              origin/${{ github.base_ref }}...HEAD \
+              | grep '\.py$' | tr '\n' ' ' || true)
+            if [ -n "$CHANGED_PY_FILES" ]; then
+              echo "files=$CHANGED_PY_FILES" >> $GITHUB_OUTPUT
+            else
+              # Skip the checks job if no Python files changed.
+              run_checks="false"
+            fi
+          fi
+
+          echo "run_checks=$run_checks" >> $GITHUB_OUTPUT
+          echo "is_pr=$is_pr" >> $GITHUB_OUTPUT
+
   checks:
     name: Run Linter and Type Checks
+    needs: detect-changes
+    if: needs.detect-changes.outputs.run_checks == 'true'
     # Pin to a specific Ubuntu version for stable and consistent builds
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -30,11 +70,28 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pylint mypy
+          # This installs all dependencies from pyproject.toml
+          pip install .
 
       - name: Run Linter (pylint)
-        run: pylint --rcfile=.pylintrc .
+        env:
+          CHANGED_FILES: ${{ needs.detect-changes.outputs.files }}
+        run: |
+          if [ "${{ needs.detect-changes.outputs.is_pr }}" = "true" ]; then
+            pylint --rcfile=.pylintrc $CHANGED_FILES
+          else
+            pylint --rcfile=.pylintrc .
+          fi
 
       - name: Run Type Checker (mypy)
-        # 'if: always()' forces mypy to run even if the linter fails
         if: always()
-        run: mypy .
+        env:
+          CHANGED_FILES: ${{ needs.detect-changes.outputs.files }}
+        run: |
+          if [ "${{ needs.detect-changes.outputs.is_pr }}" = "true" ]; then
+            mypy --explicit-package-bases \
+              --follow-imports=silent \
+              $CHANGED_FILES
+          else
+            mypy --explicit-package-bases .
+          fi
