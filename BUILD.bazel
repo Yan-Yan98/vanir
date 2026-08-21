@@ -194,6 +194,7 @@ py_library(
     deps = [
         ":vulnerability_manager",
         "//vanir/scanners:scanner_base",
+        "@vanir_deps//typing_extensions",
     ],
 )
 
@@ -486,6 +487,7 @@ py_test(
         ":reporter",
         ":vulnerability_manager",
         "@com_google_absl_py//absl/testing:absltest",
+        "@com_google_absl_py//absl/testing:parameterized",
     ],
 )
 

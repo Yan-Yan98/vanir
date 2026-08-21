@@ -10,9 +10,30 @@ import collections
 import dataclasses
 import functools
 import itertools
+import re
 from typing import Optional, Sequence, Union
+from typing_extensions import Self
+
 from vanir import vulnerability_manager
 from vanir.scanners import scanner_base
+
+# Report String Formatting Templates
+_FUNC_SUFFIX_FORMAT = '::{func_name}()'
+_PATCH_SOURCE_FORMAT = '  (patch:{patch_source}, signature:{signature_id})'
+_HTML_PATCH_SOURCE_FORMAT = (
+    '  (<a href="{patch_source}">patch</a>, {signature_id})'
+)
+_MATCHED_FROM_FORMAT = ' (matched from {target_code})'
+
+_SIMPLE_REPORT_REGEX = re.compile(
+    r'^\s*(?P<unpatched_file>[^\s(:]+)'
+    r'(?:::(?P<unpatched_function>[^()]+)\(\))?'
+    r'(?:\s+\(\s*(?:patch:\s*(?P<url>[^\s,]+)|'
+    r'<a href="(?P<html_url>[^"]+)">patch</a>)'
+    r'(?:\s*,\s*signature:\s*|\s*,\s*)(?P<sig_id>[^)]+)\s*\))?'
+    r'(?:\s*\(matched from\s+(?P<target_file>[^\s(:]+)'
+    r'(?:::(?P<target_function>[^()]+)\(\))?\))?\s*$'
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -49,25 +70,84 @@ class Report:
     """Returns unpatched file and optionally unpatched function name."""
     simple_report = self.unpatched_file
     if self.unpatched_function_name:
-      simple_report += f'::{self.unpatched_function_name}()'
+      simple_report += _FUNC_SUFFIX_FORMAT.format(
+          func_name=self.unpatched_function_name
+      )
+
     if include_patch_source:
       if use_html_link_for_patch_source:
-        simple_report += (
-            f'  (<a href="{self.signature_source}">patch</a>,'
-            f' {self.signature_id})'
+        simple_report += _HTML_PATCH_SOURCE_FORMAT.format(
+            patch_source=self.signature_source, signature_id=self.signature_id
         )
       else:
-        simple_report += (
-            f'  (patch:{self.signature_source}, signature:{self.signature_id})'
+        simple_report += _PATCH_SOURCE_FORMAT.format(
+            patch_source=self.signature_source, signature_id=self.signature_id
         )
 
     if self.is_non_target_match:
       source_patched_code = self.signature_target_file
       if self.signature_target_function:
-        source_patched_code += f'::{self.signature_target_function}()'
-      simple_report += f' (matched from {source_patched_code})'
+        source_patched_code += _FUNC_SUFFIX_FORMAT.format(
+            func_name=self.signature_target_function
+        )
+      simple_report += _MATCHED_FROM_FORMAT.format(
+          target_code=source_patched_code
+      )
 
     return simple_report
+
+  @classmethod
+  def from_simple_report(cls, report_str: str) -> Self | None:
+    """Parses a simple report string back into a Report instance.
+
+    Args:
+      report_str: The raw string representation of a missing patch finding.
+        E.g., "target.c::vuln()  (patch:http://patch, signature:test-sig)".
+
+    Returns:
+      A parsed Report object, or None if the string was empty or malformed.
+      E.g.,
+      Report(
+          signature_id="test-sig",
+          signature_target_file="target.c",
+          signature_target_function="vuln",
+          signature_source="http://patch",
+          unpatched_file="target.c",
+          unpatched_function_name="vuln",
+          is_non_target_match=False
+      )
+    """
+    report_str = report_str.strip()
+    if not report_str:
+      return None
+
+    match = _SIMPLE_REPORT_REGEX.match(report_str)
+    if not match:
+      return None
+
+    unpatched_file = match.group('unpatched_file')
+    if not unpatched_file:
+      return None
+
+    url_match = match.group('url')
+    html_match = match.group('html_url')
+    signature_source = (url_match or html_match or '').strip()
+
+    target_file = match.group('target_file')
+
+    return cls(
+        signature_id=(match.group('sig_id') or '').strip(),
+        signature_target_file=(target_file or '').strip(),
+        signature_target_function=(
+            match.group('target_function') or ''
+        ).strip(),
+        signature_source=signature_source,
+        unpatched_file=unpatched_file.strip(),
+        unpatched_function_name=(
+            match.group('unpatched_function') or ''
+        ).strip(),
+        is_non_target_match=bool(target_file),
+    )
 
 
 @dataclasses.dataclass(frozen=True)
